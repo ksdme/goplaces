@@ -2,56 +2,65 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 
-	"github.com/julienschmidt/httprouter"
-	"gopkg.in/yaml.v3"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/ksdme/goplaces/pkg/config"
 )
 
-func main() {
-	fmt.Println("Registering routes....")
-	router := httprouter.New()
-	router.GET("/:place", resolve)
+// The location to load the configuration from.
+var location string = "places.yaml"
 
-	fmt.Println("Starting the server...")
-	log.Fatal(http.ListenAndServe(":8080", router))
+// The configuration that will be used for resolving places.
+var configuration *config.Config
+
+// Reload the configuration when the user demands it.
+func reload(writer http.ResponseWriter, reader *http.Request) {
+	log.Println("Reloading configuration")
+
+	if cfg, err := config.LoadConfig(location); err == nil {
+		configuration = cfg
+		fmt.Fprintln(writer, "Configuration reloaded.")
+	} else {
+		log.Println("Could not reload configuration", err)
+		fmt.Fprintln(writer, "Could not reload configuration.")
+	}
 }
 
-func resolve(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
-	place := params.ByName("place")
-
-	// Resolve from the list of places.
-	config, err := ReadConfig()
-	if err != nil {
-		log.Fatal(err)
+// Route to redirect the user to the place destination.
+func resolve(writer http.ResponseWriter, request *http.Request) {
+	place := chi.URLParam(request, "place")
+	if len(place) == 0 {
+		fmt.Println(writer, "Missing place")
+		return
 	}
 
-	destination, ok := config.Places[place]
+	destination, ok := configuration.Places[place]
 	if !ok {
-		fmt.Fprintln(writer, "Could not find the destination for", place)
+		fmt.Fprintln(writer, "Could not find the destination for go/", place)
 		return
 	}
 
 	http.Redirect(writer, request, destination, http.StatusTemporaryRedirect)
 }
 
-type Config struct {
-	Places map[string]string
-}
-
-func ReadConfig() (*Config, error) {
-	buffer, err := ioutil.ReadFile("places.yaml")
-	if err != nil {
-		return nil, err
+func main() {
+	log.Println("Loading configuration")
+	if cfg, err := config.LoadConfig(location); err == nil {
+		configuration = cfg
+	} else {
+		log.Fatalln("Could not load configuration", err)
 	}
 
-	config := &Config{}
-	err = yaml.Unmarshal(buffer, config)
-	if err != nil {
-		return nil, err
-	}
+	router := chi.NewRouter()
+	router.Use(middleware.Logger)
 
-	return config, nil
+	log.Println("Registering routes")
+	router.Get("/reload", reload)
+	router.Get("/{place}", resolve)
+
+	log.Println("Starting the server")
+	log.Fatal(http.ListenAndServe(":8080", router))
 }
