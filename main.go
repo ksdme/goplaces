@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -11,7 +12,9 @@ import (
 )
 
 // The location to load the configuration from.
-var location string = "places.yaml"
+var port int
+var host string
+var location string
 
 // The configuration that will be used for resolving places.
 var configuration *config.Config
@@ -47,6 +50,12 @@ func resolve(writer http.ResponseWriter, request *http.Request) {
 }
 
 func main() {
+	// The command line interface for the application.
+	flag.StringVar(&location, "location", "places.yaml", "The location of the configuration file.")
+	flag.StringVar(&host, "host", "127.0.0.1", "The host to bind the server on.")
+	flag.IntVar(&port, "port", 8000, "The port to bind the server on.")
+	flag.Parse()
+
 	log.Println("Loading configuration")
 	if cfg, err := config.LoadConfig(location); err == nil {
 		configuration = cfg
@@ -61,6 +70,7 @@ func main() {
 	router.Get("/reload", reload)
 	router.Get("/{place}", resolve)
 
-	log.Println("Starting the server")
-	log.Fatal(http.ListenAndServe(":8080", router))
+	addr := fmt.Sprintf("%s:%d", host, port)
+	log.Println("Listening on", addr)
+	log.Fatal(http.ListenAndServe(addr, router))
 }
